@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Optics Cluster Algorithm
+Bundle-SymbolicName: org.carrot2.algorithm.optics;singleton:=true
+Bundle-Version: 0.0.0.QUALIFIER
+Export-Package: org.carrot2.algorithm.optics
+Require-Bundle: org.carrot2.core,
+ org.carrot2.util.common
+Bundle-ClassPath: META-INF/,
+ .
+Bundle-Vendor: Carrot2.org
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+

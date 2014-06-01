@@ -22,4 +22,5 @@
     <include suite="algorithm-kmeans.xml" />
     <include suite="algorithm-synthetic.xml" />
     <include suite="algorithm-passthrough.xml" />
+    <include suite="algorithm-optics.xml" />
 </component-suite>

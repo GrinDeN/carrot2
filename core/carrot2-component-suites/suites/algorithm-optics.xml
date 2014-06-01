@@ -1,0 +1,9 @@
+<!-- Components included in all applications -->
+<component-suite>
+  <algorithms>
+    <algorithm component-class="org.carrot2.algorithm.optics.OpticsAlgorithm" id="optics">
+      <label>Optics</label>
+      <title>Optics Clustering</title>
+    </algorithm>
+  </algorithms>
+</component-suite>
