@@ -3,11 +3,14 @@ package org.carrot2.algorithm.optics;
 import java.util.*;
 import java.math.*;
 
+import org.apache.mahout.math.list.DoubleArrayList;
 import org.apache.mahout.math.matrix.DoubleMatrix1D;
 import org.apache.mahout.math.matrix.DoubleMatrix2D;
 import org.carrot2.core.*;
 import org.carrot2.core.attribute.*;
 import org.carrot2.util.IntArrayPredicateIteratorTest;
+import org.carrot2.util.Pair;
+import org.carrot2.util.PriorityQueue;
 import org.carrot2.util.attribute.*;
 import org.carrot2.util.attribute.constraint.IntRange;
 import org.carrot2.util.attribute.constraint.NotBlank;
@@ -153,25 +156,40 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
         final DoubleMatrix2D tdMatrix;
         tdMatrix = vsmContext.termDocumentMatrix;
         
-        IntArrayList group = new IntArrayList();
-        TreeSet<Integer> unvisited = new TreeSet<Integer>();
         final List<IntArrayList> rawClusters = Lists.newArrayList();
-        IntArrayList noise = new IntArrayList();
-        IntArrayList neighborPts;
-        IntArrayList clustered = new IntArrayList();		//punkty dodane do jakiegos klastra
-        for (int i=0; i<tdMatrix.columns(); ++i) 
+        TreeSet<Integer> unvisited = new TreeSet<Integer>();
+        DoubleArrayList reachDistArray = new DoubleArrayList();
+        IntArrayList neighborsOuter;
+        IntArrayList neighborsInner;
+        IntArrayList orderedList = new IntArrayList();
+        // tu jeszcze comparator, pewnie na podstawie odleglosci w drugim elemencie pary
+        java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>> seeds = new java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>>();
+        //OPTICS
+        for (int i=0; i<tdMatrix.columns(); i++){
+        	reachDistArray.add(-1);	// UNDEFINED jako reachability-distance dla każdego dokumentu
         	unvisited.add(i);
+        }
         while (!unvisited.isEmpty()) {
-        	int i = unvisited.first();
-        	unvisited.remove(i);
-        	neighborPts = regionQuery(i, tdMatrix);
-        	if (neighborPts.size() < minPts)
-        		noise.add(i);
-        	else {
-        		IntArrayList newCluster = expandCluster(i, neighborPts,clustered, unvisited, tdMatrix);
-        		rawClusters.add(newCluster);
+        	int p = unvisited.first();
+        	neighborsOuter = getNeighbors(p, tdMatrix);
+        	unvisited.remove(p);	// as processed
+        	orderedList.add(p);
+        	if (coreDistance(p, tdMatrix) != -1){
+        		update(tdMatrix, neighborsOuter, p, seeds, unvisited, reachDistArray);
+        		Iterator<Pair<Integer, Double>> seedsIter = seeds.iterator();
+        		while(seedsIter.hasNext()){
+        			org.carrot2.util.Pair<Integer, Double> queueElem = seedsIter.next();
+        			int q = queueElem.objectA.intValue();
+        			neighborsInner = getNeighbors(q, tdMatrix);
+        			unvisited.remove(q);
+        			orderedList.add(q);
+        			if (coreDistance(q, tdMatrix) != -1){
+        				update(tdMatrix, neighborsInner, q, seeds, unvisited, reachDistArray);
+        			}
+        		}
         	}
         }
+        
         
         for (int i = 0; i < rawClusters.size(); i++)
         {
@@ -190,44 +208,85 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
     Cluster.appendOtherTopics(documents, clusters);
         
     }
-    double getDistance(DoubleMatrix1D a, DoubleMatrix1D b) {
+    
+    private double getDistance(DoubleMatrix1D a, DoubleMatrix1D b) {
     	double dist=0;
     	for (int i=0; i< a.size(); ++i) {
-    		dist += Math.sqrt( Math.pow((a.get(i)-b.get(i)), 2) );
+    		dist += Math.sqrt( Math.pow((a.get(i)-b.get(i)), 2));
     	}
     	return dist;
     }
     
-    IntArrayList regionQuery(int P, DoubleMatrix2D tdMatrix) {
-    	IntArrayList neighbor = new IntArrayList();
-    	neighbor.add(P);
+    private IntArrayList getNeighbors(int p, DoubleMatrix2D tdMatrix) {
+    	IntArrayList neighbors = new IntArrayList();
+    	neighbors.add(p);
     	for(int i = 0; i<tdMatrix.columns(); ++i) {
-    		if(i==P)
+    		if(i==p)
     			continue;
-    		if(getDistance(tdMatrix.viewColumn(i), tdMatrix.viewColumn(P)) <= eps)
-    			neighbor.add(i);
+    		if(getDistance(tdMatrix.viewColumn(i), tdMatrix.viewColumn(p)) <= eps)
+    			neighbors.add(i);
     	}
-    	return neighbor;
+    	return neighbors;
     }
     
-    IntArrayList expandCluster(int P, IntArrayList neighborPts, IntArrayList clustered, TreeSet<Integer> unvisited, DoubleMatrix2D tdMatrix) {
-    	IntArrayList cluster = new IntArrayList();
-    	IntArrayList newNeighbor;
-    	cluster.add(P);
-    	clustered.add(P);
-    	for (IntCursor p : neighborPts) {
-    		if (unvisited.contains(p.value)) {
-    			unvisited.remove(p.value);
-    			newNeighbor = regionQuery(p.value, tdMatrix);
-    			if (newNeighbor.size() >= minPts)
-    				neighborPts.addAll(newNeighbor);
-    		}
-    		if (!clustered.contains(p.value)) {
-    			cluster.add(p.value);
-    			clustered.add(p.value);
+    private double coreDistance(int p, DoubleMatrix2D tdMatrix){
+    	double dist = 0;
+    	double actualDist = 0;
+    	IntArrayList neighborsP = getNeighbors(p, tdMatrix);
+    	if (neighborsP.size() < minPts){
+    		dist = -1; //UNDEFINED
+    	} else {
+    		for (int i=0; i<neighborsP.size(); i++){
+    			actualDist = getDistance(tdMatrix.viewColumn(neighborsP.get(i)), tdMatrix.viewColumn(p));
+    			if (dist == 0){
+    				dist = actualDist;
+    			} else if (actualDist < dist){
+    				dist = actualDist;
+    			}
     		}
     	}
-    	return cluster;
+    	return dist;
+    }
+    
+    private double reachabilityDistance(int p, int o, DoubleMatrix2D tdMatrix){
+    	double dist = 0;
+    	IntArrayList neighborsP = getNeighbors(p, tdMatrix);
+    	if (neighborsP.size() < minPts){
+    		dist = -1;
+    	} else {
+    		double coreDist = coreDistance(p, tdMatrix);
+    		double euclidesDist = getDistance(tdMatrix.viewColumn(p), tdMatrix.viewColumn(o));
+    		dist = coreDist > euclidesDist ? coreDist : euclidesDist;
+    	}
+    	return dist;
+    }
+    
+    private void update(DoubleMatrix2D tdMatrix, IntArrayList N ,int p, 
+    		java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>> seeds, TreeSet<Integer> unvisited,
+    		DoubleArrayList reachDistArray){
+    	double coredist = coreDistance(p, tdMatrix);
+    	double newReachDist = 0;
+    	// N.get(i) jako o w algorytmie
+    	for (int i=0; i<N.size(); i++){
+    		if (!unvisited.contains(N.get(i))){
+    			double coreDist = coreDistance(p, tdMatrix);
+        		double euclidesDist = getDistance(tdMatrix.viewColumn(p), tdMatrix.viewColumn(N.get(i)));
+        		newReachDist = coreDist > euclidesDist ? coreDist : euclidesDist;
+        		if (reachDistArray.get(N.get(i)) == -1){	//UNDEFINED
+        			reachDistArray.set(N.get(i), newReachDist);
+        			seeds.add(new org.carrot2.util.Pair(N.get(i), newReachDist));
+        		} else {
+        			if (newReachDist < reachDistArray.get(N.get(i))){
+        				//update seeds jako usuniecie starego elementu, zmiana i dodanie nowego
+        				org.carrot2.util.Pair oldPair = new org.carrot2.util.Pair(N.get(i), reachDistArray.get(N.get(i)));
+        				reachDistArray.set(N.get(i), newReachDist);
+        				seeds.remove(oldPair);
+        				org.carrot2.util.Pair newPair = new org.carrot2.util.Pair(N.get(i), newReachDist);
+        				seeds.add(newPair);
+        			}
+        		}
+    		}
+    	}
     }
     
 }
