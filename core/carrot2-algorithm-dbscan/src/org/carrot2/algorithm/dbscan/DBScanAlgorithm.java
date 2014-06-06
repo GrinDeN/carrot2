@@ -1,4 +1,4 @@
-package org.carrot2.algorithm.optics;
+package org.carrot2.algorithm.dbscan;
 
 import java.util.*;
 import java.math.*;
@@ -36,7 +36,7 @@ import com.google.common.collect.Maps;
  */
 @Bindable(prefix = "OpticsAlgorithm", inherit = CommonAttributes.class)
 @Label("By Fake Optics")
-public class OpticsAlgorithm extends ProcessingComponentBase implements
+public class DBScanAlgorithm extends ProcessingComponentBase implements
     IClusteringAlgorithm
 {
     /**
@@ -112,9 +112,9 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
                 public List<Cluster> process(List<Document> documents,
                     LanguageCode language)
                 {
-                    OpticsAlgorithm.this.documents = documents;
-                    OpticsAlgorithm.this.cluster(language);
-                    return OpticsAlgorithm.this.clusters;
+                    DBScanAlgorithm.this.documents = documents;
+                    DBScanAlgorithm.this.cluster(language);
+                    return DBScanAlgorithm.this.clusters;
                 }
             });
         documents = originalDocuments;

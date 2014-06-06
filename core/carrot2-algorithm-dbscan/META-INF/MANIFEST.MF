@@ -1,0 +1,16 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: DBScan Cluster Algorithm
+Bundle-SymbolicName: org.carrot2.algorithm.dbscan;singleton:=true
+Bundle-Version: 0.0.0.QUALIFIER
+Export-Package: org.carrot2.algorithm.dbscan
+Require-Bundle: org.carrot2.core,
+ org.carrot2.util.common,
+ org.carrot2.text;visibility:=reexport,
+ org.carrot2.util.matrix;visibility:=reexport,
+ org.apache.mahout;bundle-version="0.3.0";visibility:=reexport
+Bundle-ClassPath: META-INF/,
+ .
+Bundle-Vendor: Carrot2.org
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+

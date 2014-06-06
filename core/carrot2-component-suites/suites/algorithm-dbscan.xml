@@ -1,0 +1,9 @@
+<!-- Components included in all applications -->
+<component-suite>
+  <algorithms>
+    <algorithm component-class="org.carrot2.algorithm.dbscan.DBScanAlgorithm" id="dbscan">
+      <label>DBScan</label>
+      <title>DBScan Clustering</title>
+    </algorithm>
+  </algorithms>
+</component-suite>
