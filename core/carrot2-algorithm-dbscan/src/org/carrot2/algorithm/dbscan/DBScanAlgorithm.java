@@ -38,8 +38,8 @@ import com.google.common.collect.Maps;
  * Clusters documents into a flat structure based on the values of some field of the
  * documents. By default the {@link Document#SOURCES} field is used.
  */
-@Bindable(prefix = "OpticsAlgorithm", inherit = CommonAttributes.class)
-@Label("By Fake Optics")
+@Bindable(prefix = "DBScanAlgorithm", inherit = CommonAttributes.class)
+@Label("By DBScan Agorithm")
 public class DBScanAlgorithm extends ProcessingComponentBase implements
     IClusteringAlgorithm
 {

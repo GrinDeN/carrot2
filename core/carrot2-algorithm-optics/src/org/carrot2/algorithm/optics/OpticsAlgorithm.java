@@ -3,9 +3,11 @@ package org.carrot2.algorithm.optics;
 import java.util.*;
 import java.math.*;
 
+import org.apache.mahout.math.function.Functions;
 import org.apache.mahout.math.list.DoubleArrayList;
 import org.apache.mahout.math.matrix.DoubleMatrix1D;
 import org.apache.mahout.math.matrix.DoubleMatrix2D;
+import org.apache.mahout.math.matrix.impl.DenseDoubleMatrix1D;
 import org.carrot2.core.*;
 import org.carrot2.core.attribute.*;
 import org.carrot2.util.IntArrayPredicateIteratorTest;
@@ -30,6 +32,8 @@ import com.carrotsearch.hppc.IntArrayList;
 import com.carrotsearch.hppc.IntIntOpenHashMap;
 import com.carrotsearch.hppc.cursors.IntCursor;
 import com.carrotsearch.hppc.cursors.IntIntCursor;
+import com.carrotsearch.hppc.sorting.IndirectComparator;
+import com.carrotsearch.hppc.sorting.IndirectSort;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -38,7 +42,7 @@ import com.google.common.collect.Maps;
  * documents. By default the {@link Document#SOURCES} field is used.
  */
 @Bindable(prefix = "OpticsAlgorithm", inherit = CommonAttributes.class)
-@Label("By Fake Optics")
+@Label("By OPTICS Algorithm")
 public class OpticsAlgorithm extends ProcessingComponentBase implements
     IClusteringAlgorithm
 {
@@ -73,11 +77,23 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
     @Input
     @Processing
     @Attribute
-    @DoubleRange(min = 0.0, max = 300.00)
+    @DoubleRange(min = 0.0, max = 60.00)
     @Group("Fields")
     @Level(AttributeLevel.BASIC)
     @Label("Eps")    
     public double eps = 1.5;
+    
+    /**
+     * Label count. The minimum number of labels to return for each cluster.
+     */
+    @Processing
+    @Input
+    @Attribute
+    @IntRange(min = 1, max = 10)
+    @Group(DefaultGroups.CLUSTERS)
+    @Level(AttributeLevel.BASIC)
+    @Label("Label count")
+    public int labelCount = 3;
     
     public IPreprocessingPipeline preprocessingPipeline = new BasicPreprocessingPipeline();
 
@@ -123,7 +139,7 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
         documents = originalDocuments;
     }
 
-    private void cluster(LanguageCode language)
+	private void cluster(LanguageCode language)
     {
     	final PreprocessingContext preprocessingContext = 
                preprocessingPipeline.preprocess(documents, null, language);
@@ -162,8 +178,22 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
         IntArrayList neighborsOuter;
         IntArrayList neighborsInner;
         IntArrayList orderedList = new IntArrayList();
-        // tu jeszcze comparator, pewnie na podstawie odleglosci w drugim elemencie pary
-        java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>> seeds = new java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>>();
+//      tu jeszcze comparator, pewnie na podstawie odleglosci w drugim elemencie pary
+        java.util.PriorityQueue<Pair<Integer, Double>> seeds = 
+        		new java.util.PriorityQueue<Pair<Integer, Double>>(tdMatrix.columns(), 
+        				new Comparator<Pair<Integer, Double>>() {
+							@Override
+							public int compare(Pair<Integer, Double> o1,
+									Pair<Integer, Double> o2) {
+								if (o1.objectB > o2.objectB){
+									return -1;
+								} else if (o1.objectB < o2.objectB){
+									return 1;
+								} else{
+									return 0;
+								}
+							}
+						});
         //OPTICS
         for (int i=0; i<tdMatrix.columns(); i++){
         	reachDistArray.add(-1);	// UNDEFINED jako reachability-distance dla każdego dokumentu
@@ -176,37 +206,94 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
         	orderedList.add(p);
         	if (coreDistance(p, tdMatrix) != -1){
         		update(tdMatrix, neighborsOuter, p, seeds, unvisited, reachDistArray);
-        		Iterator<Pair<Integer, Double>> seedsIter = seeds.iterator();
-        		while(seedsIter.hasNext()){
-        			org.carrot2.util.Pair<Integer, Double> queueElem = seedsIter.next();
+//        		Iterator<Pair<Integer, Double>> seedsIter = seeds.iterator();
+//        		while(seedsIter.hasNext()){
+        		for (Pair<Integer, Double> pair : seeds) {
+        			Pair<Integer, Double> queueElem = pair;
         			int q = queueElem.objectA.intValue();
         			neighborsInner = getNeighbors(q, tdMatrix);
         			unvisited.remove(q);
         			orderedList.add(q);
         			if (coreDistance(q, tdMatrix) != -1){
-        				update(tdMatrix, neighborsInner, q, seeds, unvisited, reachDistArray);
+        				java.util.PriorityQueue<Pair<Integer, Double>> copySeeds = new java.util.PriorityQueue<Pair<Integer, Double>>(tdMatrix.columns(), 
+                				new Comparator<Pair<Integer, Double>>() {
+        							@Override
+        							public int compare(Pair<Integer, Double> o1,
+        									Pair<Integer, Double> o2) {
+        								if (o1.objectB > o2.objectB){
+        									return -1;
+        								} else if (o1.objectB < o2.objectB){
+        									return 1;
+        								} else{
+        									return 0;
+        								}
+        							}
+        						});
+        				copySeeds.addAll(seeds);
+        				update(tdMatrix, neighborsInner, q, copySeeds, unvisited, reachDistArray);
         			}
         		}
         	}
         }
+        makeClusters(orderedList, eps/3, tdMatrix, rawClusters, reachDistArray);
         
-        
-        for (int i = 0; i < rawClusters.size(); i++)
-        {
+        for (int i = 0; i < rawClusters.size(); i++){
             final Cluster cluster = new Cluster();
-            String a = new String("temp"+i);
             final IntArrayList rawCluster = rawClusters.get(i);
-            cluster.addPhrases(a);
-            for (int j = 0; j < rawCluster.size(); j++)
-            {
-                cluster.addDocuments(documents.get(rawCluster.get(j)));
+            if (rawCluster.size() > 1){
+                cluster.addPhrases(getLabels(rawCluster,
+                    vsmContext.termDocumentMatrix, rowToStemIndex,
+                    preprocessingContext.allStems.mostFrequentOriginalWordIndex,
+                    preprocessingContext.allWords.image));
+                for (int j = 0; j < rawCluster.size(); j++){
+                    cluster.addDocuments(documents.get(rawCluster.get(j)));
+                }
+                clusters.add(cluster);
             }
-            clusters.add(cluster);
         }
 
     Collections.sort(clusters, Cluster.BY_REVERSED_SIZE_AND_LABEL_COMPARATOR);
     Cluster.appendOtherTopics(documents, clusters);
         
+    }
+    
+    private List<String> getLabels(IntArrayList documents,
+            DoubleMatrix2D termDocumentMatrix, IntIntOpenHashMap rowToStemIndex,
+            int [] mostFrequentOriginalWordIndex, char [][] wordImage)
+    {
+        final DoubleMatrix1D words = new DenseDoubleMatrix1D(termDocumentMatrix.rows());
+        for (IntCursor d : documents)
+        {
+            words.assign(termDocumentMatrix.viewColumn(d.value), Functions.PLUS);
+        }
+        final List<String> labels = Lists.newArrayListWithCapacity(labelCount);
+        final int [] order = IndirectSort.mergesort(0, words.size(),
+            new IndirectComparator()
+            {
+                @Override
+                public int compare(int a, int b)
+                {
+                    final double valueA = words.get(a);
+                    final double valueB = words.get(b);
+                    return valueA < valueB ? -1 : valueA > valueB ? 1 : 0;
+                }
+            });
+        final double minValueForLabel = words.get(order[order.length
+            - Math.min(labelCount, order.length)]);
+        for (int i = 0; i < words.size(); i++)
+        {
+            if (words.getQuick(i) >= minValueForLabel)
+            {
+                labels.add(LabelFormatter.format(new char [] []
+                {
+                    wordImage[mostFrequentOriginalWordIndex[rowToStemIndex.get(i)]]
+                }, new boolean []
+                {
+                    false
+                }, false));
+            }
+        }
+        return labels;
     }
     
     private double getDistance(DoubleMatrix1D a, DoubleMatrix1D b) {
@@ -219,12 +306,12 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
     
     private IntArrayList getNeighbors(int p, DoubleMatrix2D tdMatrix) {
     	IntArrayList neighbors = new IntArrayList();
-    	neighbors.add(p);
     	for(int i = 0; i<tdMatrix.columns(); ++i) {
-    		if(i==p)
-    			continue;
-    		if(getDistance(tdMatrix.viewColumn(i), tdMatrix.viewColumn(p)) <= eps)
+    		if(i==p){
+    			neighbors.add(p);
+    		} else if(getDistance(tdMatrix.viewColumn(i), tdMatrix.viewColumn(p)) <= eps){
     			neighbors.add(i);
+    		}
     	}
     	return neighbors;
     }
@@ -238,9 +325,7 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
     	} else {
     		for (int i=0; i<neighborsP.size(); i++){
     			actualDist = getDistance(tdMatrix.viewColumn(neighborsP.get(i)), tdMatrix.viewColumn(p));
-    			if (dist == 0){
-    				dist = actualDist;
-    			} else if (actualDist < dist){
+    			if (dist == 0 || (actualDist < dist)){
     				dist = actualDist;
     			}
     		}
@@ -262,9 +347,8 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
     }
     
     private void update(DoubleMatrix2D tdMatrix, IntArrayList N ,int p, 
-    		java.util.PriorityQueue<org.carrot2.util.Pair<Integer, Double>> seeds, TreeSet<Integer> unvisited,
+    		java.util.PriorityQueue<Pair<Integer, Double>> seeds, TreeSet<Integer> unvisited,
     		DoubleArrayList reachDistArray){
-    	double coredist = coreDistance(p, tdMatrix);
     	double newReachDist = 0;
     	// N.get(i) jako o w algorytmie
     	for (int i=0; i<N.size(); i++){
@@ -274,18 +358,43 @@ public class OpticsAlgorithm extends ProcessingComponentBase implements
         		newReachDist = coreDist > euclidesDist ? coreDist : euclidesDist;
         		if (reachDistArray.get(N.get(i)) == -1){	//UNDEFINED
         			reachDistArray.set(N.get(i), newReachDist);
-        			seeds.add(new org.carrot2.util.Pair(N.get(i), newReachDist));
+        			seeds.add(new Pair<Integer, Double>(N.get(i), newReachDist));
         		} else {
         			if (newReachDist < reachDistArray.get(N.get(i))){
         				//update seeds jako usuniecie starego elementu, zmiana i dodanie nowego
-        				org.carrot2.util.Pair oldPair = new org.carrot2.util.Pair(N.get(i), reachDistArray.get(N.get(i)));
+        				Pair<Integer, Double> oldPair = new Pair<Integer, Double>(N.get(i), reachDistArray.get(N.get(i)));
         				reachDistArray.set(N.get(i), newReachDist);
         				seeds.remove(oldPair);
-        				org.carrot2.util.Pair newPair = new org.carrot2.util.Pair(N.get(i), newReachDist);
+        				Pair<Integer, Double> newPair = new Pair<Integer, Double>(N.get(i), newReachDist);
         				seeds.add(newPair);
         			}
         		}
     		}
+    	}
+    }
+    
+    void makeClusters(IntArrayList orderedList, double Ei, DoubleMatrix2D tdMatrix, 
+    		List<IntArrayList> rawClusters, DoubleArrayList reachDistArray){
+    	IntArrayList szumCluster = new IntArrayList();
+    	IntArrayList cluster = new IntArrayList();
+    	for (IntCursor p : orderedList){
+			if (reachDistArray.get(p.value) > Ei){
+				if (coreDistance(p.value, tdMatrix) <= Ei){
+					if (cluster.size() != 0){
+						rawClusters.add(cluster);
+					}
+					cluster = new IntArrayList();
+					cluster.add(p.value);
+				} else {
+					szumCluster.add(p.value);
+				}
+			} else {
+				cluster.add(p.value);
+			}
+		}
+    	rawClusters.add(szumCluster);
+    	if (!rawClusters.contains(cluster)){
+    		rawClusters.add(cluster);
     	}
     }
     
